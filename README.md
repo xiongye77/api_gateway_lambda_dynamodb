@@ -1,5 +1,9 @@
 # api_gateway_lambda_dynamodb
 
+
+![image](https://user-images.githubusercontent.com/36766101/156271319-fc60b961-7fa5-4dd3-a7dc-6e35e98a8a8a.png)
+
+
 AWS api gateway api key can be found on aws console when you click show button. use api key to access api gateway.
 
 [ec2-user@ip-192-168-20-103 api_gateway_lambda_dynamodb]$ curl -X POST -H "x-api-key:xxxxxx" -d '{"operation":"write","id":"12","name":"test12"}' https://xxxxxx.execute-api.us-east-1.amazonaws.com/Prod/myresource
