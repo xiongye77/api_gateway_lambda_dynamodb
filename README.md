@@ -4,6 +4,10 @@
 ![image](https://user-images.githubusercontent.com/36766101/156271319-fc60b961-7fa5-4dd3-a7dc-6e35e98a8a8a.png)
 
 
+A stage is a named reference to a deployment, which is a snapshot of the API. You use a Stage to manage and optimize a particular deployment. For example, you can configure stage settings to enable caching, customize request throttling, configure logging, define stage variables, or attach a canary release for testing.
+
+![image](https://user-images.githubusercontent.com/36766101/156286132-43c46e1d-be06-4195-907b-4d77a59b9e30.png)
+
 AWS api gateway api key can be found on aws console when you click show button. use api key to access api gateway.
 
 [ec2-user@ip-192-168-20-103 api_gateway_lambda_dynamodb]$ curl -X POST -H "x-api-key:xxxxxx" -d '{"operation":"write","id":"12","name":"test12"}' https://xxxxxx.execute-api.us-east-1.amazonaws.com/Prod/myresource
