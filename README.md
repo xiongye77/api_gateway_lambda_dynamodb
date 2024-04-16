@@ -28,4 +28,16 @@ AWS api gateway api key can be found on aws console when you click show button. 
 
 
 ![image](https://github.com/xiongye77/api_gateway_lambda_dynamodb/assets/36766101/bca75d4a-1341-4ce5-a518-454a413918cb)
+aws cloudformation create-stack \
+    --stack-name apigw-lambda-sm \
+    --template-body file://cloudformation.yaml \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --parameters ParameterKey=AuthorizationTokenValue,ParameterValue="token_value" \
+    --region ap-southeast-2 \
+    --disable-rollback
 
+curl -X GET -H "Authorization: $APIGW_TOKEN" https://api_id.execute-api.eu-central-1.amazonaws.com/dev/invoke
+"Simple Main lambda function responce"
+
+ curl -X GET -H "Authorization: INCORRECT_TOKEN" https://api_id.execute-api.eu-central-1.amazonaws.com/dev/invoke
+{"message":"Forbidden"}
