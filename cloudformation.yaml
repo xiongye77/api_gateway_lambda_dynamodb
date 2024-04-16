@@ -1,0 +1,244 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: HTTP API Gateway with Lambda Authorizer and Secrets Manager
+
+Parameters:
+  AuthorizationTokenName: 
+    Type: String
+    Description: Authorization token resource name
+    Default: 'AuthorizationToken'
+  AuthorizationTokenValue:
+    Type: String
+    Description: Authorization token value
+    Default: '' 
+
+Resources:
+#####################################
+# Secret Manager
+#####################################
+  AuthorizationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Ref AuthorizationTokenName
+      Description: Access token for Authorization Lambda
+      SecretString:
+        Fn::Sub:
+          - '{"token": "${AuthorizationTokenValue}"}'
+          - AuthorizationTokenValue: !Ref AuthorizationTokenValue
+
+#####################################
+# Lambda Functions
+#####################################
+  AuthorizationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: AuthorizationLambdaFunction
+      Runtime: python3.10
+      Handler: index.lambda_handler
+      Role: !GetAtt AuthorizationLambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          AuthorizationTokenName: !Ref AuthorizationTokenName
+      Code:
+        ZipFile: |
+          import boto3
+          from botocore.exceptions import ClientError
+          import json
+          import os
+
+          def lambda_handler(event, context):
+
+              secret_name = os.environ['AuthorizationTokenName']
+              region_name = context.invoked_function_arn.split(":")[3]
+
+              # Create a Secrets Manager client
+              session = boto3.session.Session()
+              client = session.client(
+                  service_name='secretsmanager',
+                  region_name=region_name
+              )
+              try:
+                  get_secret_value_response = client.get_secret_value(
+                      SecretId=secret_name
+                  )
+                  # Take the token value from the responce
+                  secret = get_secret_value_response['SecretString']
+                  secret_token = json.loads(secret)['token']
+                  authorization_token = event.get('headers', {}).get('authorization')
+                  
+                  # Check if the authorization token match with secret manager token
+                  is_authorized = authorization_token in secret_token
+                  
+                  # Construct the response
+                  response = {
+                      "isAuthorized": is_authorized
+                  }
+                  return response
+              except ClientError as e:
+                  raise e
+
+  AuthorizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AuthorizationLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SecretsManagerAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !GetAtt AuthorizationSecret.Id
+        - PolicyName: ApiGatewayInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource:
+                  - !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApi}/*/*/invoke
+
+  MainLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: MainLambdaFunction
+      Runtime: python3.10
+      Handler: index.lambda_handler
+      Role: !GetAtt MainLambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def lambda_handler(event, context):
+              response = {
+                  "statusCode": 200,
+                  "body": json.dumps("Simple Main lambda function responce")
+              }
+              return response
+
+  MainLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MainLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+#####################################
+# API Gateway
+#####################################
+  MyApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: HttpApi4328
+      ProtocolType: HTTP
+
+  HttpApiGatewayAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      Name: HttpApiGatewayAuthorizer
+      ApiId: !Ref MyApi
+      AuthorizerType: REQUEST
+      EnableSimpleResponses: YES
+      AuthorizerUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizationLambdaFunction.Arn}/invocations
+      AuthorizerResultTtlInSeconds: 0
+      AuthorizerPayloadFormatVersion: '2.0' 
+      AuthorizerCredentialsArn: !GetAtt ApiGatewayInvokeLambdaRole.Arn
+      IdentitySource: 
+        - "$request.header.Authorization"
+
+  ApiGatewayInvokeLambdaRole:
+    Type: AWS::IAM::Role
+    DependsOn:
+      - AuthorizationLambdaFunction
+      - MainLambdaFunction
+      - AuthorizationSecret
+    Properties:
+      RoleName: ApiGatewayInvokeLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: AuthorizerPermissionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - sts:AssumeRole
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AuthorizationLambdaFunction}"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AuthorizationSecret}"
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource:
+                  - !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApi}/*/*/invoke
+
+  HttpApiGateway:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref MyApi
+      StageName: dev
+      AutoDeploy: true
+
+  HttpApiGatewayRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref MyApi
+      RouteKey: ANY /invoke
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref HttpApiGatewayAuthorizer
+      Target: !Join
+        - '/'
+        - - integrations
+          - !Ref MyHttpApiIntegration
+
+  MyHttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref MyApi
+      IntegrationType: AWS_PROXY
+      PayloadFormatVersion: '2.0'
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MainLambdaFunction.Arn}/invocations
+
+  MainLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt MainLambdaFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApi}/*/*/invoke
