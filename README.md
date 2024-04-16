@@ -24,3 +24,8 @@ AWS api gateway api key can be found on aws console when you click show button. 
 
 
 ![image](https://user-images.githubusercontent.com/36766101/154180283-baa6b3f9-a16b-43b0-b4f3-325a2d13372a.png)
+
+
+
+![image](https://github.com/xiongye77/api_gateway_lambda_dynamodb/assets/36766101/bca75d4a-1341-4ce5-a518-454a413918cb)
+
